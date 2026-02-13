@@ -1,0 +1,185 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Epic 1: Parent Authentication & Onboarding ─────────────────────────────
+
+model ParentUser {
+  id              String    @id @default(uuid()) @db.Uuid
+  supabaseUserId  String    @unique @map("supabase_user_id") @db.Uuid
+  email           String
+  role            String    @default("parent") // "parent" | "admin"
+  termsAcceptedAt DateTime? @map("terms_accepted_at")
+  termsVersion    String?   @map("terms_version")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  kidProfiles KidProfile[]
+  kidSessions KidSession[]
+  auditLogs   AuditLog[]
+
+  @@map("parent_user")
+}
+
+// ─── Epic 2: Kid Profiles & Parent Controls ──────────────────────────────────
+
+model KidProfile {
+  id                        String    @id @default(uuid()) @db.Uuid
+  parentUserId              String    @map("parent_user_id") @db.Uuid
+  nickname                  String
+  age                       Int
+  grade                     String
+  createdAttestationAt      DateTime? @map("created_attestation_at")
+  createdAttestationVersion String?   @map("created_attestation_version")
+  createdAt                 DateTime  @default(now()) @map("created_at")
+  updatedAt                 DateTime  @updatedAt @map("updated_at")
+
+  parent     ParentUser          @relation(fields: [parentUserId], references: [id])
+  settings   KidProfileSettings?
+  sessions   KidSession[]
+  dailyUsage KidDailyUsage[]
+  threads    ChatThread[]
+  auditLogs  AuditLog[]
+
+  @@index([parentUserId])
+  @@map("kid_profile")
+}
+
+model KidProfileSettings {
+  id                    String   @id @default(uuid()) @db.Uuid
+  kidProfileId          String   @unique @map("kid_profile_id") @db.Uuid
+  blockedTopics         String[] @map("blocked_topics")
+  dailyTimeLimitMinutes Int?     @map("daily_time_limit_minutes")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  kidProfile KidProfile @relation(fields: [kidProfileId], references: [id], onDelete: Cascade)
+
+  @@map("kid_profile_settings")
+}
+
+model SystemBlockedTopic {
+  id        String   @id @default(uuid()) @db.Uuid
+  topic     String
+  category  String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("system_blocked_topic")
+}
+
+// ─── Epic 3: Kid Mode Session & Time Tracking ────────────────────────────────
+
+model KidSession {
+  id           String    @id @default(uuid()) @db.Uuid
+  kidProfileId String    @map("kid_profile_id") @db.Uuid
+  parentUserId String    @map("parent_user_id") @db.Uuid
+  startedAt    DateTime  @default(now()) @map("started_at")
+  endedAt      DateTime? @map("ended_at")
+  revokedAt    DateTime? @map("revoked_at")
+  lastSeenAt   DateTime  @default(now()) @map("last_seen_at")
+
+  kidProfile KidProfile @relation(fields: [kidProfileId], references: [id], onDelete: Cascade)
+  parent     ParentUser @relation(fields: [parentUserId], references: [id])
+
+  @@index([kidProfileId])
+  @@map("kid_session")
+}
+
+model KidDailyUsage {
+  id              String    @id @default(uuid()) @db.Uuid
+  kidProfileId    String    @map("kid_profile_id") @db.Uuid
+  date            DateTime  @db.Date
+  activeSeconds   Int       @default(0) @map("active_seconds")
+  lastHeartbeatAt DateTime? @map("last_heartbeat_at")
+
+  kidProfile KidProfile @relation(fields: [kidProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([kidProfileId, date])
+  @@map("kid_daily_usage")
+}
+
+// ─── Epic 4 & 5: AI Chat & Safety ───────────────────────────────────────────
+
+model ChatThread {
+  id           String    @id @default(uuid()) @db.Uuid
+  kidProfileId String    @map("kid_profile_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  archivedAt   DateTime? @map("archived_at")
+
+  kidProfile KidProfile    @relation(fields: [kidProfileId], references: [id], onDelete: Cascade)
+  messages   ChatMessage[]
+
+  @@index([kidProfileId])
+  @@map("chat_thread")
+}
+
+model ChatMessage {
+  id       String @id @default(uuid()) @db.Uuid
+  threadId String @map("thread_id") @db.Uuid
+  role     String // "kid" | "assistant" | "system"
+  content  String
+
+  // Safety fields (kid messages)
+  safetyDecision      String?   @map("safety_decision")
+  safetyReason        String?   @map("safety_reason")
+  matchedTopics       String[]  @map("matched_topics")
+  safetyModel         String?   @map("safety_model")
+  safetyProvider      String?   @map("safety_provider")
+  safetyPromptVersion String?   @map("safety_prompt_version")
+  safetyRawJson       Json?     @map("safety_raw_json")
+  flaggedAt           DateTime? @map("flagged_at")
+
+  // Model fields (assistant messages)
+  llmProvider   String? @map("llm_provider")
+  llmModel      String? @map("llm_model")
+  promptVersion String? @map("prompt_version")
+  usageJson     Json?   @map("usage_json")
+  latencyMs     Int?    @map("latency_ms")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+  @@map("chat_message")
+}
+
+// ─── Epic 4: Email Outbox ────────────────────────────────────────────────────
+
+model EmailOutbox {
+  id       String    @id @default(uuid()) @db.Uuid
+  toEmail  String    @map("to_email")
+  subject  String
+  bodyText String    @map("body_text")
+  status   String    @default("PENDING")
+  error    String?
+  sentAt   DateTime? @map("sent_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("email_outbox")
+}
+
+// ─── Shared: Audit Log ───────────────────────────────────────────────────────
+
+model AuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  parentUserId String?  @map("parent_user_id") @db.Uuid
+  kidProfileId String?  @map("kid_profile_id") @db.Uuid
+  action       String
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  parent     ParentUser? @relation(fields: [parentUserId], references: [id])
+  kidProfile KidProfile? @relation(fields: [kidProfileId], references: [id], onDelete: SetNull)
+
+  @@index([parentUserId])
+  @@index([kidProfileId])
+  @@map("audit_log")
+}
