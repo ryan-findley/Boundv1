@@ -12,7 +12,6 @@ export default function SignUpPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const supabase = createClient();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -30,6 +29,7 @@ export default function SignUpPage() {
 
     setLoading(true);
 
+    const supabase = createClient();
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -41,7 +41,6 @@ export default function SignUpPage() {
       return;
     }
 
-    // After signup, create parent profile and redirect to onboarding
     router.push("/onboarding");
     router.refresh();
   }
