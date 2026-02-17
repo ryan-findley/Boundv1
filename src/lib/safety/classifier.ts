@@ -98,7 +98,27 @@ export async function classifySafety(input: SafetyClassifierInput): Promise<Safe
     const prompt = buildSafetyPrompt(input);
     let responseText: string;
 
-    if (provider === "openai") {
+    if (provider === "anthropic") {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey!,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 500,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0,
+        }),
+      });
+
+      if (!response.ok) throw new Error(`Anthropic API error: ${response.status}`);
+
+      const data = await response.json();
+      responseText = data.content?.[0]?.text || "";
+    } else if (provider === "openai") {
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {

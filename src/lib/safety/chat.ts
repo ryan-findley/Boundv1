@@ -28,45 +28,86 @@ export async function generateChatResponse(input: ChatGenerationInput): Promise<
 
   try {
     const systemPrompt = buildSystemPrompt(input.kidAge, input.kidGrade);
-    const messages = [
-      { role: "system", content: systemPrompt },
-      ...input.messages.map((m) => ({
-        role: m.role === "kid" ? "user" : m.role,
+    let responseText: string;
+    let usage: ChatGenerationResult["usage"];
+
+    if (provider === "anthropic") {
+      const chatMessages = input.messages.map((m) => ({
+        role: m.role === "kid" ? ("user" as const) : ("assistant" as const),
         content: m.content,
-      })),
-    ];
+      }));
 
-    const baseUrl = process.env.LLM_BASE_URL || "https://api.openai.com/v1";
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature: 0.7,
-        max_tokens: 1000,
-      }),
-    });
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey!,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1000,
+          system: systemPrompt,
+          messages: chatMessages,
+          temperature: 0.7,
+        }),
+      });
 
-    if (!response.ok) throw new Error(`LLM API error: ${response.status}`);
+      if (!response.ok) throw new Error(`Anthropic API error: ${response.status}`);
 
-    const data = await response.json();
-    const latencyMs = Date.now() - startTime;
+      const data = await response.json();
+      responseText = data.content?.[0]?.text || "";
+      usage = data.usage
+        ? {
+            promptTokens: data.usage.input_tokens,
+            completionTokens: data.usage.output_tokens,
+            totalTokens: (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0),
+          }
+        : undefined;
+    } else {
+      const messages = [
+        { role: "system", content: systemPrompt },
+        ...input.messages.map((m) => ({
+          role: m.role === "kid" ? "user" : m.role,
+          content: m.content,
+        })),
+      ];
 
-    return {
-      text: data.choices[0]?.message?.content || "I'm sorry, I couldn't think of a response. Could you try asking again?",
-      provider,
-      model,
-      usage: data.usage
+      const baseUrl = process.env.LLM_BASE_URL || "https://api.openai.com/v1";
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages,
+          temperature: 0.7,
+          max_tokens: 1000,
+        }),
+      });
+
+      if (!response.ok) throw new Error(`LLM API error: ${response.status}`);
+
+      const data = await response.json();
+      responseText = data.choices[0]?.message?.content || "";
+      usage = data.usage
         ? {
             promptTokens: data.usage.prompt_tokens,
             completionTokens: data.usage.completion_tokens,
             totalTokens: data.usage.total_tokens,
           }
-        : undefined,
+        : undefined;
+    }
+
+    const latencyMs = Date.now() - startTime;
+
+    return {
+      text: responseText || "I'm sorry, I couldn't think of a response. Could you try asking again?",
+      provider,
+      model,
+      usage,
       latencyMs,
     };
   } catch (error) {
