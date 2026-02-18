@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
-import { Header } from "@/components/layout/header";
+import { ParentPortalNav } from "@/components/layout/parent-portal-nav";
 
 export default async function ProtectedLayout({
   children,
@@ -18,6 +18,12 @@ export default async function ProtectedLayout({
   // Get or create parent profile
   let parent = await prisma.parentUser.findUnique({
     where: { supabaseUserId: user.id },
+    include: {
+      kidProfiles: {
+        select: { id: true, nickname: true, age: true },
+        orderBy: { createdAt: "asc" },
+      },
+    },
   });
 
   if (!parent) {
@@ -25,6 +31,12 @@ export default async function ProtectedLayout({
       data: {
         supabaseUserId: user.id,
         email: user.email!,
+      },
+      include: {
+        kidProfiles: {
+          select: { id: true, nickname: true, age: true },
+          orderBy: { createdAt: "asc" },
+        },
       },
     });
   }
@@ -37,7 +49,11 @@ export default async function ProtectedLayout({
 
   return (
     <div className="min-h-screen">
-      <Header email={parent.email} role={parent.role} />
+      <ParentPortalNav
+        kids={parent.kidProfiles}
+        email={parent.email}
+        role={parent.role}
+      />
       <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
     </div>
   );

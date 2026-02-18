@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { KID_ATTESTATION_VERSION } from "@/lib/constants";
+import { seedDefaultSensitivityRules } from "@/app/actions/controls";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
@@ -65,6 +66,17 @@ export async function createKidProfile(formData: FormData) {
       },
     },
   });
+
+  // Seed default content sensitivity rules and notification preferences
+  await Promise.all([
+    seedDefaultSensitivityRules(kid.id),
+    prisma.notificationPreference.create({
+      data: {
+        parentUserId: parent.id,
+        kidProfileId: kid.id,
+      },
+    }),
+  ]);
 
   // Audit log
   await prisma.auditLog.create({

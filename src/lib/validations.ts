@@ -41,9 +41,42 @@ export const timeLimitSchema = z.object({
   minutes: z.coerce.number().int().min(5).max(480).nullable(),
 });
 
+// Phase 2: Controls
+export const timeLimitSettingsSchema = z.object({
+  dailyTimeLimitMinutes: z.coerce.number().int().min(15).max(120).nullable(),
+  quietHoursStart: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
+  quietHoursEnd: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
+  weekendTimeLimitAdjustment: z.coerce.number().int().min(0).max(120).nullable(),
+});
+
+export const contentSensitivitySchema = z.object({
+  rules: z.array(z.object({
+    category: z.enum(["sexual", "violence", "religious", "political", "relationships", "mental_health", "drugs"]),
+    alertLevel: z.enum(["red", "yellow", "green"]),
+  })),
+});
+
+export const customKeywordsSchema = z.object({
+  alertKeywords: z.array(z.string().min(1).max(100)).max(50),
+  exceptionKeywords: z.array(z.string().min(1).max(100)).max(50),
+});
+
+export const notificationPreferencesSchema = z.object({
+  instantPush: z.boolean(),
+  instantEmail: z.boolean(),
+  instantSms: z.boolean(),
+  weeklyDigestEmail: z.boolean(),
+  lessonCompletionNotify: z.boolean(),
+  kidShareNotify: z.boolean(),
+});
+
 export type SignUpInput = z.infer<typeof signUpSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type KidProfileInput = z.infer<typeof kidProfileSchema>;
 export type KidProfileUpdateInput = z.infer<typeof kidProfileUpdateSchema>;
 export type BlockedTopicsInput = z.infer<typeof blockedTopicsSchema>;
 export type TimeLimitInput = z.infer<typeof timeLimitSchema>;
+export type TimeLimitSettingsInput = z.infer<typeof timeLimitSettingsSchema>;
+export type ContentSensitivityInput = z.infer<typeof contentSensitivitySchema>;
+export type CustomKeywordsInput = z.infer<typeof customKeywordsSchema>;
+export type NotificationPreferencesInput = z.infer<typeof notificationPreferencesSchema>;

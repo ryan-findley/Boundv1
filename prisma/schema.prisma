@@ -19,9 +19,10 @@ model ParentUser {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  kidProfiles KidProfile[]
-  kidSessions KidSession[]
-  auditLogs   AuditLog[]
+  kidProfiles             KidProfile[]
+  kidSessions             KidSession[]
+  auditLogs               AuditLog[]
+  notificationPreferences NotificationPreference[]
 
   @@map("parent_user")
 }
@@ -39,24 +40,32 @@ model KidProfile {
   createdAt                 DateTime  @default(now()) @map("created_at")
   updatedAt                 DateTime  @updatedAt @map("updated_at")
 
-  parent     ParentUser          @relation(fields: [parentUserId], references: [id])
-  settings   KidProfileSettings?
-  sessions   KidSession[]
-  dailyUsage KidDailyUsage[]
-  threads    ChatThread[]
-  auditLogs  AuditLog[]
+  parent                  ParentUser               @relation(fields: [parentUserId], references: [id])
+  settings                KidProfileSettings?
+  sessions                KidSession[]
+  dailyUsage              KidDailyUsage[]
+  threads                 ChatThread[]
+  auditLogs               AuditLog[]
+  contentSensitivityRules ContentSensitivityRule[]
+  alertEvents             AlertEvent[]
+  notificationPreferences NotificationPreference[]
 
   @@index([parentUserId])
   @@map("kid_profile")
 }
 
 model KidProfileSettings {
-  id                    String   @id @default(uuid()) @db.Uuid
-  kidProfileId          String   @unique @map("kid_profile_id") @db.Uuid
-  blockedTopics         String[] @map("blocked_topics")
-  dailyTimeLimitMinutes Int?     @map("daily_time_limit_minutes")
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
+  id                         String   @id @default(uuid()) @db.Uuid
+  kidProfileId               String   @unique @map("kid_profile_id") @db.Uuid
+  blockedTopics              String[] @map("blocked_topics")
+  dailyTimeLimitMinutes      Int?     @map("daily_time_limit_minutes")
+  quietHoursStart            String?  @map("quiet_hours_start") // "21:00" format
+  quietHoursEnd              String?  @map("quiet_hours_end") // "07:00" format
+  weekendTimeLimitAdjustment Int?     @map("weekend_time_limit_adjustment") // additional minutes
+  alertKeywords              String[] @map("alert_keywords")
+  exceptionKeywords          String[] @map("exception_keywords")
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
 
   kidProfile KidProfile @relation(fields: [kidProfileId], references: [id], onDelete: Cascade)
 
@@ -108,6 +117,7 @@ model KidDailyUsage {
 model ChatThread {
   id           String    @id @default(uuid()) @db.Uuid
   kidProfileId String    @map("kid_profile_id") @db.Uuid
+  title        String?
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
   archivedAt   DateTime? @map("archived_at")
@@ -144,10 +154,69 @@ model ChatMessage {
 
   createdAt DateTime @default(now()) @map("created_at")
 
-  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  thread     ChatThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  alertEvent AlertEvent?
 
   @@index([threadId, createdAt])
   @@map("chat_message")
+}
+
+// ─── Content Sensitivity & Tiered Alerts ────────────────────────────────────
+
+model ContentSensitivityRule {
+  id           String   @id @default(uuid()) @db.Uuid
+  kidProfileId String   @map("kid_profile_id") @db.Uuid
+  category     String // "sexual" | "violence" | "religious" | "political" | "relationships" | "mental_health" | "drugs"
+  alertLevel   String // "red" | "yellow" | "green"
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  kidProfile KidProfile @relation(fields: [kidProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([kidProfileId, category])
+  @@map("content_sensitivity_rule")
+}
+
+model AlertEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  kidProfileId  String    @map("kid_profile_id") @db.Uuid
+  chatMessageId String?   @unique @map("chat_message_id") @db.Uuid
+  alertLevel    String // "red" | "yellow"
+  category      String
+  summary       String
+  reviewedAt    DateTime? @map("reviewed_at")
+  reviewedBy    String?   @map("reviewed_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  kidProfile  KidProfile   @relation(fields: [kidProfileId], references: [id], onDelete: Cascade)
+  chatMessage ChatMessage? @relation(fields: [chatMessageId], references: [id], onDelete: SetNull)
+
+  @@index([kidProfileId, createdAt])
+  @@map("alert_event")
+}
+
+// ─── Notification Preferences ───────────────────────────────────────────────
+
+model NotificationPreference {
+  id           String  @id @default(uuid()) @db.Uuid
+  parentUserId String  @map("parent_user_id") @db.Uuid
+  kidProfileId String? @map("kid_profile_id") @db.Uuid
+
+  instantPush            Boolean @default(true) @map("instant_push")
+  instantEmail           Boolean @default(true) @map("instant_email")
+  instantSms             Boolean @default(false) @map("instant_sms")
+  weeklyDigestEmail      Boolean @default(true) @map("weekly_digest_email")
+  lessonCompletionNotify Boolean @default(true) @map("lesson_completion_notify")
+  kidShareNotify         Boolean @default(false) @map("kid_share_notify")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  parent     ParentUser  @relation(fields: [parentUserId], references: [id])
+  kidProfile KidProfile? @relation(fields: [kidProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([parentUserId, kidProfileId])
+  @@map("notification_preference")
 }
 
 // ─── Epic 4: Email Outbox ────────────────────────────────────────────────────

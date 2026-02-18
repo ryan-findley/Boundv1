@@ -34,3 +34,35 @@ export const CHAT_RATE_LIMIT_PER_MINUTE = 10;
 export const HEARTBEAT_INTERVAL_SECONDS = 15;
 export const IDLE_TIMEOUT_SECONDS = 60;
 export const TIME_WARNING_MINUTES = 5;
+
+// Content Sensitivity (Phase 2)
+export const CONTENT_SENSITIVITY_CATEGORIES = [
+  { id: "sexual", label: "Sexual content" },
+  { id: "violence", label: "Violence" },
+  { id: "religious", label: "Religious topics" },
+  { id: "political", label: "Political topics" },
+  { id: "relationships", label: "Relationships/dating" },
+  { id: "mental_health", label: "Mental health" },
+  { id: "drugs", label: "Drugs/alcohol" },
+] as const;
+
+export type SensitivityCategory = typeof CONTENT_SENSITIVITY_CATEGORIES[number]["id"];
+
+export const DEFAULT_SENSITIVITY_RULES: Record<SensitivityCategory, string> = {
+  sexual: "red",
+  violence: "red",
+  religious: "yellow",
+  political: "yellow",
+  relationships: "red",
+  mental_health: "yellow",
+  drugs: "red",
+};
+
+export const ALERT_LEVELS = {
+  red: { label: "Instant alert" },
+  yellow: { label: "Weekly digest" },
+  green: { label: "No flag" },
+} as const;
+
+export const TIME_LIMIT_MIN = 15;
+export const TIME_LIMIT_MAX = 120;
