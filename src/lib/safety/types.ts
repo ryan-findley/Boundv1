@@ -7,6 +7,7 @@ export interface SafetyDecision {
     | "euphemism"
     | "unclear_but_risky"
     | "classifier_error"
+    | "keyword_alert"
     | "none"
     | "other";
   confidence: number;
@@ -19,6 +20,8 @@ export interface SafetyClassifierInput {
   kidAge: number;
   kidGrade: string;
   promptVersion: string;
+  alertKeywords?: string[];
+  exceptionKeywords?: string[];
 }
 
 export interface SafetyClassifierResult {

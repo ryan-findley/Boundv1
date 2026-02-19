@@ -66,3 +66,28 @@ export const ALERT_LEVELS = {
 
 export const TIME_LIMIT_MIN = 15;
 export const TIME_LIMIT_MAX = 120;
+
+// Activity Log (Phase 5)
+export const AUDIT_EVENT_LABELS: Record<string, { label: string; category: string }> = {
+  kid_session_started: { label: "Session started", category: "sessions" },
+  kid_session_ended: { label: "Session ended", category: "sessions" },
+  kid_profile_created: { label: "Profile created", category: "profiles" },
+  kid_profile_updated: { label: "Profile updated", category: "profiles" },
+  kid_profile_deleted: { label: "Profile deleted", category: "profiles" },
+  blocked_topics_updated: { label: "Blocked topics changed", category: "controls" },
+  time_limit_updated: { label: "Time limit changed", category: "controls" },
+  time_limit_settings_updated: { label: "Time settings changed", category: "controls" },
+  time_extended: { label: "Time extended", category: "controls" },
+  alert_reviewed: { label: "Alert reviewed", category: "alerts" },
+  content_sensitivity_updated: { label: "Sensitivity updated", category: "controls" },
+  custom_keywords_updated: { label: "Keywords updated", category: "controls" },
+  notification_preferences_updated: { label: "Notifications updated", category: "controls" },
+};
+
+export const AUDIT_EVENT_CATEGORIES = [
+  { id: "all", label: "All events" },
+  { id: "sessions", label: "Sessions" },
+  { id: "profiles", label: "Profiles" },
+  { id: "controls", label: "Controls" },
+  { id: "alerts", label: "Alerts" },
+] as const;

@@ -84,6 +84,24 @@ export async function getAggregatedBlockedTopics(kidProfileId: string): Promise<
   return combined;
 }
 
+/**
+ * Check if exception keywords should suppress an alert.
+ * If the prompt matches an exception keyword, we skip alerting.
+ */
+function matchesExceptionKeywords(promptText: string, exceptionKeywords: string[]): boolean {
+  const lower = promptText.toLowerCase();
+  return exceptionKeywords.some((kw) => lower.includes(kw.toLowerCase()));
+}
+
+/**
+ * Check if alert keywords are triggered (parent-configured).
+ * Returns matched keywords for yellow-level alerting even if not blocked.
+ */
+function matchAlertKeywords(promptText: string, alertKeywords: string[]): string[] {
+  const lower = promptText.toLowerCase();
+  return alertKeywords.filter((kw) => lower.includes(kw.toLowerCase()));
+}
+
 export async function classifySafety(input: SafetyClassifierInput): Promise<SafetyClassifierResult> {
   const provider = process.env.LLM_PROVIDER || "mock";
   const model = process.env.LLM_MODEL || "mock";
@@ -162,6 +180,22 @@ export async function classifySafety(input: SafetyClassifierInput): Promise<Safe
 
     const decision = parseDecision(responseText);
 
+    // Post-process: apply exception keywords to suppress alerts
+    if (input.exceptionKeywords?.length && matchesExceptionKeywords(input.promptText, input.exceptionKeywords)) {
+      decision.matched_topics = [];
+    }
+
+    // Post-process: apply alert keywords (triggers yellow-level alert even if ALLOW)
+    if (input.alertKeywords?.length && decision.decision === "ALLOW") {
+      const keywordMatches = matchAlertKeywords(input.promptText, input.alertKeywords);
+      if (keywordMatches.length > 0) {
+        decision.matched_topics = [...new Set([...decision.matched_topics, ...keywordMatches])];
+        if (!decision.reason || decision.reason === "none") {
+          decision.reason = "keyword_alert";
+        }
+      }
+    }
+
     return {
       decision,
       provider,
@@ -189,6 +223,21 @@ export async function classifySafety(input: SafetyClassifierInput): Promise<Safe
 function mockClassify(input: SafetyClassifierInput): SafetyClassifierResult {
   const lower = input.promptText.toLowerCase();
 
+  // Check exception keywords first — if matched, suppress alerts
+  if (input.exceptionKeywords?.length && matchesExceptionKeywords(input.promptText, input.exceptionKeywords)) {
+    return {
+      decision: {
+        decision: "ALLOW",
+        matched_topics: [],
+        reason: "none",
+        confidence: 0.95,
+      },
+      provider: "mock",
+      model: "mock-classifier",
+      rawJson: { mock: true, exceptionApplied: true },
+    };
+  }
+
   // Simple keyword matching for mock
   const matches = input.blockedTopics.filter((topic) => {
     const topicLower = topic.toLowerCase();
@@ -196,11 +245,18 @@ function mockClassify(input: SafetyClassifierInput): SafetyClassifierResult {
     return words.some((word) => lower.includes(word)) || lower.includes(topicLower);
   });
 
+  // Check alert keywords (trigger yellow alert even if not blocked)
+  const alertMatches = input.alertKeywords?.length
+    ? matchAlertKeywords(input.promptText, input.alertKeywords)
+    : [];
+
+  const allMatchedTopics = [...new Set([...matches, ...alertMatches])];
+
   return {
     decision: {
       decision: matches.length > 0 ? "BLOCK" : "ALLOW",
-      matched_topics: matches,
-      reason: matches.length > 0 ? "direct_request" : "none",
+      matched_topics: allMatchedTopics,
+      reason: matches.length > 0 ? "direct_request" : alertMatches.length > 0 ? "keyword_alert" : "none",
       confidence: matches.length > 0 ? 0.9 : 0.95,
     },
     provider: "mock",

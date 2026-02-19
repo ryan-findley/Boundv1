@@ -16,6 +16,34 @@ async function getAuthenticatedParent() {
   });
 }
 
+/**
+ * Check if the current time falls within quiet hours.
+ * Handles overnight ranges (e.g. 21:00 -> 07:00).
+ */
+function isQuietHours(quietStart: string | null, quietEnd: string | null): boolean {
+  if (!quietStart || !quietEnd) return false;
+
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const [startH, startM] = quietStart.split(":").map(Number);
+  const [endH, endM] = quietEnd.split(":").map(Number);
+  const startMinutes = startH * 60 + startM;
+  const endMinutes = endH * 60 + endM;
+
+  if (startMinutes <= endMinutes) {
+    // Same day range (e.g. 08:00 -> 12:00)
+    return currentMinutes >= startMinutes && currentMinutes < endMinutes;
+  }
+  // Overnight range (e.g. 21:00 -> 07:00)
+  return currentMinutes >= startMinutes || currentMinutes < endMinutes;
+}
+
+function isWeekend(): boolean {
+  const day = new Date().getDay();
+  return day === 0 || day === 6;
+}
+
 export async function startKidSession(kidProfileId: string) {
   const parent = await getAuthenticatedParent();
   if (!parent) redirect("/login");
@@ -23,9 +51,17 @@ export async function startKidSession(kidProfileId: string) {
   // Verify ownership
   const kid = await prisma.kidProfile.findUnique({
     where: { id: kidProfileId },
+    include: { settings: true },
   });
   if (!kid || kid.parentUserId !== parent.id) {
     throw new Error("Not found");
+  }
+
+  // Check quiet hours
+  if (kid.settings && isQuietHours(kid.settings.quietHoursStart, kid.settings.quietHoursEnd)) {
+    throw new Error(
+      `Sessions are not available during quiet hours (${kid.settings.quietHoursStart} - ${kid.settings.quietHoursEnd})`
+    );
   }
 
   // End any existing active session for this kid
@@ -159,8 +195,14 @@ export async function heartbeat(sessionId: string) {
     },
   });
 
-  // Check time limit
-  const limit = session.kidProfile.settings?.dailyTimeLimitMinutes;
+  // Check time limit (with weekend adjustment)
+  const settings = session.kidProfile.settings;
+  let limit = settings?.dailyTimeLimitMinutes ?? null;
+
+  if (limit !== null && isWeekend() && settings?.weekendTimeLimitAdjustment) {
+    limit = limit + settings.weekendTimeLimitAdjustment;
+  }
+
   const usedMinutes = Math.floor(usage.activeSeconds / 60);
 
   return {

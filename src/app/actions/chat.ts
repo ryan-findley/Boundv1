@@ -82,6 +82,8 @@ export async function submitKidPrompt(
     kidAge: kid.age,
     kidGrade: kid.grade,
     promptVersion: SAFETY_PROMPT_VERSION,
+    alertKeywords: kid.settings?.alertKeywords ?? [],
+    exceptionKeywords: kid.settings?.exceptionKeywords ?? [],
   });
 
   const { decision } = safetyResult;
@@ -103,6 +105,43 @@ export async function submitKidPrompt(
     },
   });
 
+  // Step 2.5: Check content sensitivity rules for tiered alerts
+  if (decision.matched_topics.length > 0) {
+    const sensitivityRules = await prisma.contentSensitivityRule.findMany({
+      where: { kidProfileId },
+    });
+    const ruleMap = new Map(sensitivityRules.map((r) => [r.category, r.alertLevel]));
+
+    // Find the highest alert level among matched topics
+    let highestLevel: "red" | "yellow" | null = null;
+    let alertCategory = decision.matched_topics[0] ?? "unknown";
+
+    for (const topic of decision.matched_topics) {
+      const level = ruleMap.get(topic);
+      if (level === "red") {
+        highestLevel = "red";
+        alertCategory = topic;
+        break;
+      }
+      if (level === "yellow" && highestLevel === null) {
+        highestLevel = "yellow";
+        alertCategory = topic;
+      }
+    }
+
+    if (highestLevel) {
+      await prisma.alertEvent.create({
+        data: {
+          kidProfileId,
+          chatMessageId: kidMessage.id,
+          alertLevel: highestLevel,
+          category: alertCategory,
+          summary: `Message flagged: "${promptText.substring(0, 100)}${promptText.length > 100 ? "..." : ""}"`,
+        },
+      });
+    }
+  }
+
   // Step 3: Handle BLOCK
   if (decision.decision === "BLOCK") {
     console.log("[SAFETY BLOCK]", {
@@ -114,7 +153,7 @@ export async function submitKidPrompt(
       model: safetyResult.model,
     });
 
-    // Create email alert
+    // Create email alert for red-level blocks
     await prisma.emailOutbox.create({
       data: {
         toEmail: parent.email,

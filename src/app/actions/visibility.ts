@@ -87,6 +87,141 @@ export async function getTranscript(
   }));
 }
 
+export async function getThreadList(
+  kidProfileId: string,
+  filters?: {
+    search?: string;
+    flagFilter?: "all" | "red" | "yellow" | "flagged";
+    dateStart?: string;
+    dateEnd?: string;
+  }
+) {
+  await verifyKidOwnership(kidProfileId);
+
+  const threads = await prisma.chatThread.findMany({
+    where: { kidProfileId },
+    orderBy: { updatedAt: "desc" },
+    include: {
+      messages: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          role: true,
+          content: true,
+          createdAt: true,
+          flaggedAt: true,
+        },
+      },
+    },
+  });
+
+  let results = threads.map((thread) => {
+    const msgs = thread.messages;
+    const firstMsg = msgs[0];
+    const lastMsg = msgs[msgs.length - 1];
+    const kidMessages = msgs.filter((m) => m.role === "kid");
+    const flaggedMessages = msgs.filter((m) => m.flaggedAt !== null);
+
+    const title =
+      thread.title ??
+      (kidMessages[0]?.content.slice(0, 50) || "Untitled conversation");
+
+    const durationMs =
+      firstMsg && lastMsg
+        ? lastMsg.createdAt.getTime() - firstMsg.createdAt.getTime()
+        : 0;
+    const durationMinutes = Math.max(1, Math.round(durationMs / 60000));
+
+    let flagLevel: "red" | "yellow" | null = null;
+    if (flaggedMessages.length > 0) flagLevel = "red";
+
+    return {
+      id: thread.id,
+      title,
+      messageCount: msgs.length,
+      durationMinutes,
+      flagLevel,
+      createdAt: thread.createdAt.toISOString(),
+      updatedAt: thread.updatedAt.toISOString(),
+      lastMessageAt: lastMsg?.createdAt.toISOString() ?? thread.updatedAt.toISOString(),
+    };
+  });
+
+  // Apply filters
+  if (filters?.search) {
+    const q = filters.search.toLowerCase();
+    results = results.filter((r) => r.title.toLowerCase().includes(q));
+  }
+
+  if (filters?.flagFilter && filters.flagFilter !== "all") {
+    if (filters.flagFilter === "flagged") {
+      results = results.filter((r) => r.flagLevel !== null);
+    } else {
+      results = results.filter((r) => r.flagLevel === filters.flagFilter);
+    }
+  }
+
+  if (filters?.dateStart) {
+    const start = new Date(filters.dateStart);
+    results = results.filter((r) => new Date(r.lastMessageAt) >= start);
+  }
+  if (filters?.dateEnd) {
+    const end = new Date(filters.dateEnd);
+    end.setHours(23, 59, 59, 999);
+    results = results.filter((r) => new Date(r.createdAt) <= end);
+  }
+
+  // Save auto-generated titles for threads that don't have one
+  const titlesToUpdate = threads.filter((t) => !t.title);
+  if (titlesToUpdate.length > 0) {
+    await Promise.all(
+      titlesToUpdate.map((t) => {
+        const kidMsg = t.messages.find((m) => m.role === "kid");
+        const title = kidMsg?.content.slice(0, 50) || "Untitled conversation";
+        return prisma.chatThread.update({
+          where: { id: t.id },
+          data: { title },
+        });
+      })
+    );
+  }
+
+  return results;
+}
+
+export async function getThreadTranscript(
+  kidProfileId: string,
+  threadId: string
+) {
+  await verifyKidOwnership(kidProfileId);
+
+  const thread = await prisma.chatThread.findUnique({
+    where: { id: threadId },
+  });
+  if (!thread || thread.kidProfileId !== kidProfileId) {
+    throw new Error("Not found");
+  }
+
+  const messages = await prisma.chatMessage.findMany({
+    where: { threadId },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return {
+    threadId: thread.id,
+    title: thread.title,
+    messages: messages.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      createdAt: m.createdAt.toISOString(),
+      safetyDecision: m.safetyDecision,
+      matchedTopics: m.matchedTopics,
+      flaggedAt: m.flaggedAt?.toISOString() ?? null,
+    })),
+  };
+}
+
 export async function getDailyUsageSummary(
   kidProfileId: string,
   startDate?: string,
